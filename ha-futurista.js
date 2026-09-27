@@ -3,7 +3,7 @@
  * Estilo "Opción E · Futurista": fondo oscuro, bordes con brillo, clima ilustrado.
  * Licencia MIT
  */
-const FX_VERSION = '1.4.0';
+const FX_VERSION = '1.5.0';
 
 (function cargarFuentes() {
   if (document.getElementById('fx-fuentes')) return;
@@ -787,6 +787,7 @@ class FuturistaMusicaCard extends FxBase {
     return { entity: m || 'media_player.salon' };
   }
   validar(c) { if (!c.entity) throw new Error('Falta "entity" (un media_player.xxx)'); }
+  setConfig(c) { this._circListo = false; super.setConfig(c); }
   signature() {
     const s = this.st(this._config.entity);
     if (!s) return 'x';
@@ -799,6 +800,8 @@ class FuturistaMusicaCard extends FxBase {
     const c = this._config;
     const s = this.st(c.entity);
     if (!s) return this.error(`No encuentro la entidad ${c.entity}`);
+    if (c.estilo === 'circular') return this._renderCircular(s);
+    this._circListo = false;
     const a = s.attributes;
     const sonando = s.state === 'playing';
     const hayMedia = !!a.media_title;
@@ -853,7 +856,124 @@ class FuturistaMusicaCard extends FxBase {
     r.querySelector('.arte').addEventListener('click', () => this.masInfo(c.entity));
     this._progreso();
   }
+  _posicion(s) {
+    const a = s.attributes;
+    let pos = a.media_position || 0;
+    if (s.state === 'playing' && a.media_position_updated_at) {
+      pos += (Date.now() - new Date(a.media_position_updated_at).getTime()) / 1000;
+    }
+    return a.media_duration ? Math.min(pos, a.media_duration) : 0;
+  }
+  _mmss(seg) {
+    const t = Math.max(0, Math.floor(seg || 0));
+    return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+  }
+
+  /* ---------------- Estilo "circular" (visualizador) ---------------- */
+  _renderCircular(s) {
+    const c = this._config;
+    const a = s.attributes;
+    const r = this.shadowRoot;
+    const N = 60;
+    if (!this._circListo) {
+      let barras = '';
+      for (let i = 0; i < N; i++) {
+        const l = 10 + Math.abs(Math.sin(i * 0.45)) * 22 + ((i * 37) % 9);
+        const ang = (i / N) * 360;
+        barras += `<g transform="rotate(${ang.toFixed(1)} 120 120)"><rect class="b" data-i="${i}" x="118" y="${(36 - l).toFixed(1)}" width="4" height="${l.toFixed(1)}" rx="2"
+          style="animation-delay:${((i % 10) * 0.08).toFixed(2)}s; animation-duration:${(0.8 + (i % 5) * 0.1).toFixed(1)}s"></rect></g>`;
+      }
+      r.innerHTML = `<style>${BASE_CSS}
+        .card { display: flex; align-items: center; gap: 24px; padding: 20px 26px; min-height: 240px; font-family: 'Figtree', system-ui, sans-serif; color: #fff; container-type: inline-size; }
+        .anillo { position: relative; height: 100%; max-height: 260px; aspect-ratio: 1; flex-shrink: 0; max-width: 42%; cursor: pointer; }
+        .anillo svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+        .b { fill: #2a3448; transform-box: fill-box; transform-origin: 50% 100%; transition: fill .4s; }
+        .b.on { fill: ${FX.naranja}; }
+        .sonando .b { animation: late 1s ease-in-out infinite alternate; }
+        @keyframes late { from { transform: scaleY(.45); } to { transform: scaleY(1); } }
+        .arte { position: absolute; left: 19.2%; top: 19.2%; width: 61.6%; height: 61.6%; border-radius: 50%; overflow: hidden; background: #1a1409;
+          box-shadow: 0 0 0 2px rgba(255,180,84,.5); display: flex; align-items: center; justify-content: center; color: ${FX.naranja}; --mdc-icon-size: 40%; }
+        .arte img { width: 100%; height: 100%; object-fit: cover; }
+        .der { flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+        .sup { font-size: 12px; letter-spacing: 1px; color: ${FX.ambar}; font-weight: 700; }
+        .tit { font-size: clamp(20px, 4cqw, 28px); font-weight: 700; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .art { font-size: 16px; color: #c3cbd8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .tiempo { font-size: 13px; color: #aab3c2; }
+        .ctl { display: flex; align-items: center; gap: 16px; margin-top: 4px; }
+        .b2 { width: 46px; height: 46px; border: none; border-radius: 23px; background: #1c2334; color: #fff; display: flex; align-items: center; justify-content: center; padding: 0; --mdc-icon-size: 22px; }
+        .play { width: 62px; height: 62px; border-radius: 31px; background: ${FX.naranja}; color: #0e1522; --mdc-icon-size: 28px; }
+        .vol { display: flex; align-items: center; gap: 10px; color: #c3cbd8; max-width: 300px; --mdc-icon-size: 18px; }
+        .vol input { flex-grow: 1; accent-color: #c3cbd8; }
+        .vol span { font-size: 12px; color: #aab3c2; width: 36px; text-align: right; }
+      </style>
+      <div class="card">
+        <div class="anillo" id="anillo" role="button" tabindex="0" aria-label="Detalles del reproductor">
+          <svg viewBox="0 0 240 240" aria-hidden="true">${barras}</svg>
+          <div class="arte" id="arte"></div>
+        </div>
+        <div class="der">
+          <div>
+            <div class="sup" id="sup"></div>
+            <div class="tit" id="tit"></div>
+            <div class="art" id="art"></div>
+          </div>
+          <div class="tiempo" id="tiempo"></div>
+          <div class="ctl">
+            <button class="b2" id="prev" aria-label="Anterior"><ha-icon icon="mdi:skip-previous"></ha-icon></button>
+            <button class="b2 play" id="play"><ha-icon id="playIcono" icon="mdi:play"></ha-icon></button>
+            <button class="b2" id="next" aria-label="Siguiente"><ha-icon icon="mdi:skip-next"></ha-icon></button>
+          </div>
+          <label class="vol"><ha-icon icon="mdi:volume-high"></ha-icon><input id="vol" type="range" min="0" max="100" aria-label="Volumen"><span id="volTxt"></span></label>
+        </div>
+      </div>`;
+      const id = () => ({ entity_id: this._config.entity });
+      r.getElementById('prev').addEventListener('click', () => this.llamar('media_player.media_previous_track', {}, id()));
+      r.getElementById('next').addEventListener('click', () => this.llamar('media_player.media_next_track', {}, id()));
+      r.getElementById('play').addEventListener('click', () => this.llamar('media_player.media_play_pause', {}, id()));
+      const vol = r.getElementById('vol');
+      vol.addEventListener('input', (e) => { r.getElementById('volTxt').textContent = `${e.target.value}%`; });
+      vol.addEventListener('change', (e) => this.llamar('media_player.volume_set', { volume_level: e.target.value / 100 }, id()));
+      const an = r.getElementById('anillo');
+      an.addEventListener('click', () => this.masInfo(this._config.entity));
+      an.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.masInfo(this._config.entity); });
+      this._barras = [...r.querySelectorAll('.b')];
+      this._circListo = true;
+      this._picActual = undefined;
+    }
+    const sonando = s.state === 'playing';
+    const hayMedia = !!a.media_title;
+    r.getElementById('anillo').classList.toggle('sonando', sonando);
+    if (this._picActual !== a.entity_picture) {
+      r.getElementById('arte').innerHTML = a.entity_picture ? `<img src="${esc(a.entity_picture)}" alt="">` : '<ha-icon icon="mdi:music-note"></ha-icon>';
+      this._picActual = a.entity_picture;
+    }
+    r.getElementById('sup').textContent = sonando ? 'SONANDO AHORA' : hayMedia ? 'EN PAUSA' : 'NADA REPRODUCIENDO';
+    r.getElementById('tit').textContent = hayMedia ? a.media_title : (c.nombre || a.friendly_name || 'Reproductor');
+    r.getElementById('art').textContent = [a.media_artist, hayMedia ? a.media_album_name : null].filter(Boolean).join(' · ');
+    r.getElementById('playIcono').setAttribute('icon', sonando ? 'mdi:pause' : 'mdi:play');
+    r.getElementById('play').setAttribute('aria-label', sonando ? 'Pausar' : 'Reproducir');
+    const vol = Math.round((a.volume_level ?? 0) * 100);
+    const inp = r.getElementById('vol');
+    if (this.shadowRoot.activeElement !== inp) inp.value = vol;
+    r.getElementById('volTxt').textContent = `${vol}%`;
+    this._tickCircular();
+  }
+  _tickCircular() {
+    const s = this.st(this._config?.entity);
+    const r = this.shadowRoot;
+    if (!s || !this._barras || !r.getElementById('tiempo')) return;
+    const a = s.attributes;
+    const pos = this._posicion(s);
+    const pct = a.media_duration ? pos / a.media_duration : 0;
+    const encendidas = Math.round(pct * this._barras.length);
+    this._barras.forEach((b, i) => b.classList.toggle('on', i < encendidas));
+    const fuente = this._config.nombre || a.friendly_name || '';
+    r.getElementById('tiempo').textContent = a.media_duration
+      ? `${this._mmss(pos)} de ${this._mmss(a.media_duration)}${fuente ? ' · ' + fuente : ''}`
+      : (a.media_title ? fuente : '');
+  }
   _progreso() {
+    if (this._config?.estilo === 'circular') return this._tickCircular();
     const el = this.shadowRoot.getElementById('prog');
     const s = this.st(this._config?.entity);
     if (!el || !s) return;
