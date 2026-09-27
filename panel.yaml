@@ -1,0 +1,122 @@
+# =====================================================================
+# Panel "Futurista" (Opción E)
+# Pegar en: Ajustes → Paneles → (tu panel) → lápiz → ⋮ → Editor de configuración RAW
+# Las líneas marcadas con  # CAMBIAR  llevan entidades que tienes que reemplazar
+# por las tuyas (Herramientas para desarrolladores → Estados para ver los IDs).
+# =====================================================================
+
+views:
+  - title: Inicio
+    path: inicio
+    icon: mdi:home
+    type: sections
+    max_columns: 4
+    background: "#070b12"
+    sections:
+      - type: grid
+        column_span: 4
+        cards:
+
+          # ---------- CABECERA CON CHIPS DE ESTADO ----------
+          - type: custom:futurista-estado-card
+            titulo: Hola Familia
+            subtitulo: Martinengo
+            chips:
+              - entity: binary_sensor.nexxt_one_2430jekvt_estado_wan
+                nombre: Internet
+                estados_ok: ["on"]
+              - entity: sensor.roborock_qr_598_bateria
+                nombre: Roborock
+                alerta_bajo: 20
+              - entity: sensor.asustor_cpu               # CAMBIAR
+                nombre: NAS CPU
+                alerta_sobre: 90
+            grid_options:
+              columns: full
+              rows: 1
+
+          # ---------- CLIMA (izquierda, grande) ----------
+          - type: custom:futurista-clima-card
+            entity: weather.forecast_casa
+            nombre: Martinengo
+            estilo: montanas
+            horas: 6
+            grid_options:
+              columns: 28
+              rows: 8
+
+          # ---------- RELOJ (derecha arriba) ----------
+          - type: custom:futurista-reloj-card
+            grid_options:
+              columns: 20
+              rows: 3
+
+          # ---------- ROBOROCK + BOTONES (derecha abajo) ----------
+          - type: custom:futurista-roborock-card
+            nombre: Roborock
+            entity: vacuum.roborock_qr_598
+            bateria: sensor.roborock_qr_598_bateria
+            columnas: 3
+            botones:
+              - nombre: Aspirar
+                icono: mdi:robot-vacuum
+                accion: button.press
+                target:
+                  entity_id: button.roborock_qr_598_aspirar_c_y_b
+              - nombre: Baño y Cocina
+                icono: mdi:shower
+                accion: button.press
+                target:
+                  entity_id: button.roborock_qr_598_cocina_y_bano
+              - nombre: Completa
+                icono: mdi:home
+                accion: button.press
+                target:
+                  entity_id: button.roborock_qr_598_limpieza_completa
+              - nombre: Calor
+                icono: mdi:heat-wave
+                entity: switch.roborock_qr_598_dock_secado_de_la_mopa
+              - nombre: Caldera
+                icono: mdi:water-boiler
+                entity: switch.roborock_qr_598_dock_lavado_de_la_mopa
+              - nombre: Vaciar
+                icono: mdi:delete-empty-outline
+                entity: switch.roborock_qr_598_dock_vaciado_del_deposito_de_polvo
+            grid_options:
+              columns: 20
+              rows: 5
+
+          # ---------- MÚSICA ----------
+          - type: custom:futurista-musica-card
+            entity: media_player.echo_pop_spotify
+            grid_options:
+              columns: 20
+              rows: 5
+
+          # ---------- RED ----------
+          - type: custom:futurista-red-card
+            nombre: Red
+            conexion: binary_sensor.nexxt_one_2430jekvt_estado_wan
+            descarga: sensor.nexxt_one_2430jekvt_velocidad_de_descarga
+            subida: sensor.nexxt_one_2430jekvt_velocidad_de_subida
+            grid_options:
+              columns: 16
+              rows: 5
+
+          # ---------- NAS ----------
+          - type: custom:futurista-nas-card
+            nombre: ASUSTOR
+            medidores:
+              - entity: sensor.asustor_cpu               # CAMBIAR
+                nombre: CPU
+              - entity: sensor.asustor_ram               # CAMBIAR
+                nombre: RAM
+                max: 1024                                # RAM total en MB, para calcular el %
+              - entity: sensor.asustor_disco_usado       # CAMBIAR
+                nombre: Disco
+            filas:
+              - entity: sensor.asustor_uptime            # CAMBIAR (opcional)
+                nombre: Encendido
+            grid_options:
+              columns: 12
+              rows: 5
