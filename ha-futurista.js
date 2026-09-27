@@ -3,14 +3,14 @@
  * Estilo "Opción E · Futurista": fondo oscuro, bordes con brillo, clima ilustrado.
  * Licencia MIT
  */
-const FX_VERSION = '1.0.0';
+const FX_VERSION = '1.3.0';
 
 (function cargarFuentes() {
   if (document.getElementById('fx-fuentes')) return;
   const l = document.createElement('link');
   l.id = 'fx-fuentes';
   l.rel = 'stylesheet';
-  l.href = 'https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap';
+  l.href = 'https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Figtree:wght@300;400;600;700&display=swap';
   document.head.appendChild(l);
 })();
 
@@ -264,13 +264,25 @@ class FuturistaClimaCard extends FxBase {
   setConfig(c) {
     this._desuscribir();
     this._uid = Math.random().toString(36).slice(2, 8);
+    this._montanasListo = false;
     super.setConfig(c);
   }
   entidades() { return [this._config.entity, this._config.sun_entity || 'sun.sun']; }
-  signature() { return super.signature() + '|' + (this._fcVer || 0); }
+  signature() {
+    if (this._config.estilo === 'montanas') {
+      const w = this.st(this._config.entity);
+      const sol = this.st(this._config.sun_entity || 'sun.sun');
+      return JSON.stringify([w?.state, w?.last_updated, sol?.state, Math.floor(Date.now() / 600000), this._fcVer || 0]);
+    }
+    return super.signature() + '|' + (this._fcVer || 0);
+  }
   _update() { this._suscribir(); super._update(); }
-  connectedCallback() { if (this._hass) this._update(); }
-  disconnectedCallback() { this._desuscribir(); }
+  connectedCallbackMontanas() {
+    clearInterval(this._tm);
+    this._tm = setInterval(() => { if (this._config?.estilo === 'montanas') this._update(); }, 60000);
+  }
+  connectedCallback() { this.connectedCallbackMontanas(); if (this._hass) this._update(); }
+  disconnectedCallback() { this._desuscribir(); clearInterval(this._tm); }
   _desuscribir() {
     if (this._unsub) { this._unsub.then((f) => f && f()).catch(() => {}); }
     this._unsub = null;
@@ -292,6 +304,8 @@ class FuturistaClimaCard extends FxBase {
     const c = this._config;
     const s = this.st(c.entity);
     if (!s) return this.error(`No encuentro la entidad ${c.entity}`);
+    if (c.estilo === 'montanas') return this._renderMontanas(s);
+    this._montanasListo = false;
     const a = s.attributes;
     const sol = this.st(c.sun_entity || 'sun.sun');
     const cond = s.state;
@@ -358,6 +372,223 @@ class FuturistaClimaCard extends FxBase {
     const card = this.shadowRoot.querySelector('.card');
     card.addEventListener('click', () => this.masInfo(c.entity));
     card.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.masInfo(c.entity); });
+  }
+
+  /* ---------------- Estilo "montanas" (realista con movimiento) ---------------- */
+  _astro(sol) {
+    const a = sol?.attributes || {};
+    const nr = a.next_rising ? new Date(a.next_rising).getTime() : null;
+    const ns = a.next_setting ? new Date(a.next_setting).getTime() : null;
+    const ahora = Date.now();
+    if (!nr || !ns) return { f: 0.5, dia: true };
+    const dia = sol.state === 'above_horizon';
+    let f;
+    if (dia) { const salida = nr - 86400000; f = (ahora - salida) / (ns - salida); }
+    else { const puesta = ns - 86400000; f = (ahora - puesta) / (nr - puesta); }
+    return { f: Math.max(0.02, Math.min(0.98, f)), dia };
+  }
+  _cresta(semilla, base, amp, aspereza) {
+    let t = semilla * 9301 + 49297;
+    const azar = () => { t = (t * 9301 + 49297) % 233280; return t / 233280; };
+    const fases = [azar() * 6, azar() * 6, azar() * 6];
+    let d = 'M0 520';
+    for (let x = 0; x <= 930; x += 10) {
+      const v = Math.sin(x / 140 + fases[0]) * 0.5 + Math.sin(x / 61 + fases[1]) * 0.3 + Math.sin(x / 27 + fases[2]) * 0.15 + (azar() - 0.5) * aspereza;
+      d += ` L${x} ${(base - amp * v).toFixed(1)}`;
+    }
+    return d + ' L930 520 Z';
+  }
+  _renderMontanas(w) {
+    const c = this._config;
+    const a = w.attributes;
+    const cond = w.state;
+    const sol = this.st(c.sun_entity || 'sun.sun');
+    const { f, dia } = this._astro(sol);
+    const noche = !dia || cond === 'clear-night';
+    const cubierto = ['cloudy', 'fog', 'rainy', 'pouring', 'lightning', 'lightning-rainy', 'snowy', 'snowy-rainy', 'hail'].includes(cond);
+    const tormenta = ['rainy', 'pouring', 'lightning', 'lightning-rainy', 'snowy', 'snowy-rainy', 'hail'].includes(cond);
+    const uid = this._uid;
+
+    const cielo = noche ? ['#02060f', '#081631', '#16294a', '#25395c']
+      : cubierto ? ['#1f2c3c', '#3d5268', '#7b8ea2', '#a8b3be']
+      : ['#0c2e5e', '#2c6eaa', '#8ab8dc', '#e9ddc0'];
+    const crestas = noche ? ['#2a3a58', '#1e2c46', '#142036', '#0a1322']
+      : cubierto ? ['#6c7c8e', '#4d5d70', '#324154', '#18222f']
+      : ['#6f8fb3', '#4a6c93', '#2c4a6e', '#13263f'];
+    const banda = noche ? '#070d18' : '#0c1a2d';
+    const niebla = noche ? '#8795ad' : cubierto ? '#cfd6de' : '#dfe6ee';
+
+    let alfaOff = -1.75, luzNube = '#ffffff', opNube = 0.85, mascara = 'transparent 0%, #000 12%, #000 45%, transparent 62%';
+    if (['partlycloudy', 'windy-variant'].includes(cond)) alfaOff = -1.45;
+    if (['cloudy', 'fog'].includes(cond)) { alfaOff = -1.0; luzNube = '#e3e8ee'; mascara = 'transparent 0%, #000 5%, #000 60%, transparent 78%'; }
+    if (tormenta) { alfaOff = -0.85; luzNube = '#b9c3cf'; mascara = 'transparent 0%, #000 3%, #000 62%, transparent 80%'; }
+    if (noche) { luzNube = '#8a9bb8'; opNube = 0.6; }
+
+    const ax = 90 + f * 750;
+    const ay = 330 - Math.sin(Math.PI * f) * 240;
+    const opSol = cubierto ? 0.35 : 1;
+
+    let astro;
+    if (noche) {
+      astro = `<circle cx="${ax}" cy="${ay}" r="150" fill="url(#mh${uid})" opacity="0.6"></circle>
+        <mask id="ml${uid}"><rect width="930" height="520" fill="#fff"></rect><circle cx="${ax + 11}" cy="${ay - 8}" r="23" fill="#000"></circle></mask>
+        <circle cx="${ax}" cy="${ay}" r="26" fill="#e8eefc" mask="url(#ml${uid})"></circle>`;
+    } else {
+      astro = `<circle class="pulso" cx="${ax}" cy="${ay}" r="300" fill="url(#ms${uid})" opacity="${opSol}"></circle>`;
+    }
+    let estrellas = '';
+    if (noche && !cubierto) {
+      const pos = [[80,50],[160,110],[240,40],[330,85],[410,30],[480,120],[560,60],[640,35],[720,95],[800,50],[870,120],[120,170],[380,160],[600,150],[840,180]];
+      estrellas = pos.map(([x, y], i) => `<circle class="titila" style="animation-delay:${(i % 5) * 0.7}s" cx="${x}" cy="${y}" r="${i % 3 === 0 ? 1.6 : 1}" fill="#fff" opacity="0.85"></circle>`).join('');
+    }
+    let precip = '';
+    if (['rainy', 'pouring', 'lightning-rainy', 'snowy-rainy', 'hail'].includes(cond)) {
+      for (let i = 0; i < 46; i++) {
+        const x = (i * 97) % 930, y = 60 + ((i * 53) % 300);
+        precip += `<line class="gota" style="animation-delay:${((i * 0.11) % 1.1).toFixed(2)}s" x1="${x}" y1="${y}" x2="${x - 6}" y2="${y + 18}" stroke="#bcdcf5" stroke-width="2" stroke-linecap="round" opacity="0.7"></line>`;
+      }
+    }
+    if (['snowy', 'snowy-rainy'].includes(cond)) {
+      for (let i = 0; i < 40; i++) {
+        const x = (i * 89) % 930, y = 60 + ((i * 41) % 300);
+        precip += `<circle class="copo" style="animation-delay:${((i * 0.19) % 2.4).toFixed(2)}s" cx="${x}" cy="${y}" r="3" fill="#fff"></circle>`;
+      }
+    }
+    if (['lightning', 'lightning-rainy'].includes(cond)) {
+      precip += `<path class="rayo" d="M520 150 L495 215 L520 215 L500 285 L555 200 L528 200 L550 150 Z" fill="#ffe37a"></path>`;
+    }
+
+    const cieloSvg = `<svg viewBox="0 0 930 520" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+      <defs>
+        <linearGradient id="mc${uid}" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="${cielo[0]}"></stop><stop offset="0.4" stop-color="${cielo[1]}"></stop>
+          <stop offset="0.62" stop-color="${cielo[2]}"></stop><stop offset="0.78" stop-color="${cielo[3]}"></stop>
+        </linearGradient>
+        <radialGradient id="ms${uid}" cx="0.5" cy="0.5" r="0.5">
+          <stop offset="0" stop-color="#ffffff"></stop><stop offset="0.07" stop-color="#fff5d2"></stop>
+          <stop offset="0.2" stop-color="#ffe29a" stop-opacity="0.6"></stop><stop offset="0.55" stop-color="#ffd27a" stop-opacity="0.15"></stop>
+          <stop offset="1" stop-color="#ffd27a" stop-opacity="0"></stop>
+        </radialGradient>
+        <radialGradient id="mh${uid}" cx="0.5" cy="0.5" r="0.5">
+          <stop offset="0" stop-color="#cfe0ff" stop-opacity="0.35"></stop><stop offset="1" stop-color="#cfe0ff" stop-opacity="0"></stop>
+        </radialGradient>
+      </defs>
+      <rect width="930" height="520" fill="url(#mc${uid})"></rect>
+      ${estrellas}${astro}
+    </svg>`;
+
+    const montesSvg = `<svg viewBox="0 0 930 520" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+      <defs>
+        <linearGradient id="mn${uid}" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="${niebla}" stop-opacity="0"></stop><stop offset="0.55" stop-color="${niebla}" stop-opacity="${noche ? 0.15 : 0.32}"></stop>
+          <stop offset="1" stop-color="${niebla}" stop-opacity="0.1"></stop>
+        </linearGradient>
+      </defs>
+      ${precip}
+      <path d="${this._cresta(3, 290, 70, 0.35)}" fill="${crestas[0]}"></path>
+      <g class="niebla"><rect x="-200" y="240" width="1330" height="190" fill="url(#mn${uid})"></rect></g>
+      <path d="${this._cresta(10, 330, 50, 0.3)}" fill="${crestas[1]}"></path>
+      <path d="${this._cresta(17, 365, 34, 0.25)}" fill="${crestas[2]}"></path>
+      <path d="${this._cresta(24, 398, 20, 0.2)}" fill="${crestas[3]}"></path>
+      <rect x="0" y="420" width="930" height="100" fill="${banda}"></rect>
+    </svg>`;
+
+    const nubesSvg = `<svg viewBox="0 0 1860 520" preserveAspectRatio="xMinYMax slice" aria-hidden="true">
+      <defs>
+        <filter id="mf${uid}" x="0" y="0" width="100%" height="100%">
+          <feTurbulence type="fractalNoise" baseFrequency="0.003 0.02" numOctaves="5" seed="4" result="ruido"></feTurbulence>
+          <feDiffuseLighting in="ruido" lighting-color="${luzNube}" surfaceScale="3" result="luz"><feDistantLight azimuth="-30" elevation="45"></feDistantLight></feDiffuseLighting>
+          <feColorMatrix in="ruido" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  3.4 0 0 0 ${alfaOff}" result="alfa"></feColorMatrix>
+          <feComposite in="luz" in2="alfa" operator="in"></feComposite>
+          <feGaussianBlur stdDeviation="0.8"></feGaussianBlur>
+        </filter>
+      </defs>
+      <rect width="1860" height="520" filter="url(#mf${uid})"></rect>
+    </svg>`;
+
+    // Datos
+    const n = c.horas || 6;
+    const lista = (this._fc || a.forecast || []).slice(0, n);
+    const diario = this._fcTipo === 'daily';
+    const horas = lista.map((fc) => {
+      const d = new Date(fc.datetime);
+      const etq = diario ? d.toLocaleDateString('es-ES', { weekday: 'short' }) : d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+      const esNoche = !diario && (d.getHours() < 7 || d.getHours() >= 20);
+      return `<div class="h"><div class="ht">${esc(etq)}</div>${iconoMini(fc.condition, esNoche)}<div class="hv">${Math.round(fc.temperature)}°</div></div>`;
+    }).join('');
+    const detalles = [];
+    if (a.humidity != null) detalles.push(`Humedad ${numFmt(a.humidity, 0)} %`);
+    if (a.wind_speed != null) detalles.push(`Viento ${numFmt(a.wind_speed)} ${esc(a.wind_speed_unit || 'km/h')}`);
+    const sa = sol?.attributes || {};
+
+    const sobre = `
+      <div class="info">
+        ${c.nombre ? `<div class="lugar">${esc(c.nombre)}</div>` : ''}
+        <div class="temp">${Math.round(a.temperature)}°</div>
+        <div class="cond">${esc(CONDICIONES[cond] || cond)}</div>
+        <div class="det">${detalles.map(esc).join(' · ')}</div>
+      </div>
+      ${sa.next_rising ? `<div class="soles"><div>Amanecer ${horaCorta(sa.next_rising)}</div><div>Atardecer ${horaCorta(sa.next_setting)}</div></div>` : ''}
+      <div class="horas" style="grid-template-columns: repeat(${Math.max(lista.length, 1)}, minmax(0, 1fr))">${horas}</div>`;
+
+    const claveNubes = `${alfaOff}|${luzNube}|${opNube}|${mascara}`;
+    const r = this.shadowRoot;
+    if (!this._montanasListo) {
+      r.innerHTML = `<style>${BASE_CSS}
+        .card { cursor: pointer; container-type: inline-size; min-height: 320px; border: none; font-family: 'Figtree', system-ui, sans-serif; color: #fff; }
+        .capa { position: absolute; inset: 0; }
+        .capa > svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+        .nubes { overflow: hidden; }
+        .nubes .mov { position: absolute; top: 0; left: 0; height: 100%; width: 200%; will-change: transform; animation: viaje 180s ease-in-out infinite alternate; }
+        .nubes .mov svg { width: 100%; height: 100%; display: block; }
+        .niebla { animation: niebla 40s ease-in-out infinite alternate; }
+        .info { position: absolute; left: 5%; top: 7%; text-shadow: 0 2px 18px rgba(4,18,40,0.45); }
+        .lugar { font-size: 17px; font-weight: 600; }
+        .temp { font-size: clamp(64px, 13.5cqw, 124px); font-weight: 300; line-height: 1; letter-spacing: -3px; }
+        .cond { font-size: clamp(17px, 2.4cqw, 22px); font-weight: 600; margin-top: 2px; }
+        .det { font-size: 14px; opacity: .9; margin-top: 4px; }
+        .soles { position: absolute; right: 4%; top: 7%; text-align: right; font-size: 14px; line-height: 1.7; text-shadow: 0 2px 12px rgba(4,18,40,0.5); }
+        .horas { position: absolute; left: 3%; right: 3%; bottom: 14px; display: grid; gap: 4px; }
+        .h { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+        .ht { font-size: 13px; opacity: .8; }
+        .hv { font-size: 18px; font-weight: 700; }
+        .pulso { animation: pulso 6s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+        .gota { animation: cae 1.1s linear infinite; }
+        .copo { animation: nieva 2.4s linear infinite; }
+        .rayo { animation: rayo 4s steps(1) infinite; }
+        .titila { animation: titila 3s ease-in-out infinite; }
+        @keyframes viaje { from { transform: translateX(0); } to { transform: translateX(-35%); } }
+        @keyframes niebla { from { transform: translateX(-60px); opacity: .7; } to { transform: translateX(60px); opacity: 1; } }
+        @keyframes pulso { 50% { opacity: .8; transform: scale(1.05); } }
+        @keyframes cae { from { transform: translateY(-12px); opacity: 0; } 30% { opacity: 1; } to { transform: translateY(46px); opacity: 0; } }
+        @keyframes nieva { from { transform: translateY(-10px); opacity: 0; } 30% { opacity: 1; } to { transform: translateY(50px) translateX(8px); opacity: 0; } }
+        @keyframes rayo { 0%, 100% { opacity: 0; } 92% { opacity: 1; } 95% { opacity: 0; } 97% { opacity: 1; } }
+        @keyframes titila { 50% { opacity: .25; } }
+      </style>
+      <div class="card" role="button" tabindex="0">
+        <div class="capa" id="cielo"></div>
+        <div class="capa nubes" id="nubes"><div class="mov" id="mov"></div></div>
+        <div class="capa" id="montes"></div>
+        <div class="capa" id="sobre"></div>
+      </div>`;
+      const card = r.querySelector('.card');
+      card.addEventListener('click', () => this.masInfo(c.entity));
+      card.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.masInfo(c.entity); });
+      this._montanasListo = true;
+      this._claveNubes = null;
+    }
+    r.getElementById('cielo').innerHTML = cieloSvg;
+    r.getElementById('montes').innerHTML = montesSvg;
+    r.getElementById('sobre').innerHTML = sobre;
+    r.querySelector('.card').setAttribute('aria-label', `Clima: ${CONDICIONES[cond] || cond}, ${Math.round(a.temperature)} grados`);
+    if (this._claveNubes !== claveNubes) {
+      const capa = r.getElementById('nubes');
+      capa.style.opacity = opNube;
+      capa.style.webkitMaskImage = `linear-gradient(to bottom, ${mascara})`;
+      capa.style.maskImage = `linear-gradient(to bottom, ${mascara})`;
+      r.getElementById('mov').innerHTML = nubesSvg;
+      this._claveNubes = claveNubes;
+    }
   }
   getCardSize() { return 8; }
   getGridOptions() { return { columns: 12, rows: 8, min_rows: 5 }; }
@@ -526,7 +757,14 @@ class FuturistaRoborockCard extends FxBase {
       el.classList.add('flash');
       setTimeout(() => el.classList.remove('flash'), 600);
       if (bt.accion) this.llamar(bt.accion, bt.data, bt.target);
-      else if (bt.entity) this.llamar('homeassistant.toggle', {}, { entity_id: bt.entity });
+      else if (bt.entity) {
+        const dom = bt.entity.split('.')[0];
+        const destino = { entity_id: bt.entity };
+        if (dom === 'button' || dom === 'input_button') this.llamar(`${dom}.press`, {}, destino);
+        else if (dom === 'script' || dom === 'scene') this.llamar(`${dom}.turn_on`, {}, destino);
+        else if (dom === 'vacuum') this.llamar('vacuum.start', {}, destino);
+        else this.llamar('homeassistant.toggle', {}, destino);
+      }
     }));
   }
   getCardSize() { return 4; }
@@ -633,7 +871,37 @@ class FuturistaRedCard extends FxBase {
     const c = this._config;
     return [c.conexion, c.descarga, c.subida, c.dispositivos].filter(Boolean);
   }
-  signature() { return super.signature() + '|' + (this._abierto ? 1 : 0) + '|' + (this._histVer || 0); }
+  signature() {
+    let extra = '';
+    if (this._config.dispositivos === 'rastreadores') {
+      extra = Object.keys(this._hass.states).filter((e) => e.startsWith('device_tracker.'))
+        .map((e) => e + '=' + this._hass.states[e].state).join(',');
+    }
+    return super.signature() + '|' + (this._abierto ? 1 : 0) + '|' + (this._histVer || 0) + '|' + extra;
+  }
+  _desdeRastreadores() {
+    const c = this._config;
+    const excluir = (c.excluir || []).map((x) => String(x).toLowerCase());
+    return Object.keys(this._hass.states)
+      .filter((e) => e.startsWith('device_tracker.'))
+      .map((e) => ({ id: e, s: this._hass.states[e] }))
+      .filter(({ s }) => s.attributes.source_type === 'router' || s.attributes.ip)
+      .filter(({ s }) => c.mostrar_todos || s.state === 'home')
+      .map(({ id, s }) => {
+        const a = s.attributes;
+        return {
+          nombre: a.friendly_name || a.host_name || id,
+          ip: a.ip || '',
+          clave: [a.friendly_name, a.host_name, a.mac, a.ip, id].filter(Boolean).join(' ').toLowerCase(),
+          conectado: s.state === 'home',
+        };
+      })
+      .filter((d) => !excluir.some((x) => d.clave.includes(x)))
+      .sort((x, y) => {
+        const n = (ip) => ip.split('.').map((p) => p.padStart(3, '0')).join('.');
+        return n(x.ip).localeCompare(n(y.ip));
+      });
+  }
   connectedCallback() {
     this._cargarHistorial();
     this._th = setInterval(() => this._cargarHistorial(), 5 * 60 * 1000);
@@ -688,21 +956,34 @@ class FuturistaRedCard extends FxBase {
       grafico = `<svg class="graf" viewBox="0 0 300 56" preserveAspectRatio="none" aria-hidden="true">${this._linea(sd, max, FX.cian)}${this._linea(su, max, FX.violeta)}</svg>`;
     }
 
-    const dispSt = this.st(c.dispositivos);
-    let lista = [];
+    const dispSt = c.dispositivos === 'rastreadores' ? null : this.st(c.dispositivos);
+    let lista = c.dispositivos === 'rastreadores' ? this._desdeRastreadores() : [];
     if (dispSt) {
       const attr = dispSt.attributes[c.atributo || 'dispositivos'];
-      if (Array.isArray(attr)) lista = attr;
+      if (Array.isArray(attr)) {
+        lista = attr;
+      } else if (typeof attr === 'string' && attr.trim().startsWith('[')) {
+        try { lista = JSON.parse(attr.replace(/'/g, '"')); } catch (e) { lista = []; }
+      } else if (String(dispSt.state).includes('|')) {
+        // Formato de texto: "nombre|ip;nombre|ip;..." (por ejemplo, un input_text)
+        const prefijo = c.prefijo_ip ?? '192.168.1.';
+        lista = String(dispSt.state).split(';').map((x) => x.trim()).filter(Boolean).map((x) => {
+          const [nombre, ip] = x.split('|').map((y) => (y || '').trim());
+          const ipCompleta = !ip ? '' : ip.includes('.') ? ip : prefijo + ip;
+          return { nombre, ip: ipCompleta };
+        });
+      }
     }
     const renombrar = c.nombres || {};
     const iconos = c.iconos || {};
     const filas = lista.map((d) => {
       const orig = typeof d === 'string' ? d : (d.nombre || d.name || 'Dispositivo');
       const ip = typeof d === 'string' ? '' : (d.ip || '');
-      const low = String(orig).toLowerCase();
+      const low = (typeof d === 'object' && d.clave) ? d.clave : String(orig).toLowerCase();
       const claveN = Object.keys(renombrar).find((k) => low.includes(k.toLowerCase()));
       const claveI = Object.keys(iconos).find((k) => low.includes(k.toLowerCase()));
-      return `<div class="fila"><ha-icon icon="${esc(claveI ? iconos[claveI] : 'mdi:devices')}"></ha-icon><span class="n">${esc(claveN ? renombrar[claveN] : orig)}</span><span class="tenue ip">${esc(ip)}</span></div>`;
+      const apagado = typeof d === 'object' && d.conectado === false;
+      return `<div class="fila" style="${apagado ? 'opacity:.45' : ''}"><ha-icon icon="${esc(claveI ? iconos[claveI] : 'mdi:devices')}"></ha-icon><span class="n">${esc(claveN ? renombrar[claveN] : orig)}</span><span class="tenue ip">${esc(ip)}</span></div>`;
     }).join('');
 
     this.shadowRoot.innerHTML = `<style>${BASE_CSS}
