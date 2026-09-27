@@ -3,7 +3,7 @@
  * Estilo "Opción E · Futurista": fondo oscuro, bordes con brillo, clima ilustrado.
  * Licencia MIT
  */
-const FX_VERSION = '1.5.1';
+const FX_VERSION = '1.6.0';
 
 (function cargarFuentes() {
   if (document.getElementById('fx-fuentes')) return;
@@ -613,6 +613,7 @@ class FuturistaRelojCard extends FxBase {
   }
   disconnectedCallback() { clearInterval(this._t); }
   render() {
+    if (this._config?.estilo === 'minimal') return this._renderMinimal();
     this.shadowRoot.innerHTML = `<style>${BASE_CSS}
       .card { display: flex; align-items: center; justify-content: space-between; padding: 20px 26px; gap: 16px; min-height: 150px; }
       .hora { font-size: clamp(56px, 6.5vw, 92px); font-weight: 300; line-height: 1; color: #eaf6ff; }
@@ -627,7 +628,67 @@ class FuturistaRelojCard extends FxBase {
     </div>`;
     this._tick();
   }
+  _renderMinimal() {
+    const r = this.shadowRoot;
+    r.innerHTML = `<style>${BASE_CSS}
+      .card { container-type: size; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 150px; cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent; }
+      .hora { font-family: 'Chakra Petch', system-ui, sans-serif; font-weight: 300; line-height: 0.9; letter-spacing: -0.02em; color: #eaf6ff;
+        text-shadow: 0 0 40px rgba(77,226,255,0.25); font-size: clamp(48px, min(30cqw, 58cqh), 300px); white-space: nowrap; font-variant-numeric: tabular-nums; }
+      .card.seg .hora { font-size: clamp(40px, min(20cqw, 50cqh), 220px); }
+      .dp { animation: dp 2s steps(1) infinite; }
+      @keyframes dp { 50% { opacity: .25; } }
+      .seg-num { color: ${FX.cian}; }
+      .fecha { font-family: 'Chakra Petch', system-ui, sans-serif; font-size: clamp(11px, min(2.4cqw, 6cqh), 18px); letter-spacing: .4em; color: ${FX.tenue}; margin-top: clamp(6px, 3cqh, 18px); text-transform: uppercase; padding-left: .4em; }
+      .linea { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: ${FX.pista}; }
+      .linea div { height: 100%; width: 0; background: ${FX.cian}; box-shadow: 0 0 10px ${FX.cian}; }
+    </style>
+    <div class="card" id="card" role="button" tabindex="0" aria-label="Reloj. Toca para mostrar u ocultar los segundos">
+      <div class="hora" id="hora"></div>
+      <div class="fecha" id="fecha"></div>
+      <div class="linea"><div id="barra"></div></div>
+    </div>`;
+    const card = r.getElementById('card');
+    const alternar = () => { this._conSeg = !this._conSeg; this._horaTxt = null; this._tick(); };
+    card.addEventListener('click', alternar);
+    card.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); alternar(); } });
+    this._horaTxt = null;
+    this._tick();
+  }
+  _tickMinimal() {
+    const r = this.shadowRoot;
+    const hora = r.getElementById('hora');
+    if (!hora) return;
+    const loc = this._config?.idioma || 'es-ES';
+    const d = new Date();
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    const ss = String(d.getSeconds()).padStart(2, '0');
+    const clave = this._conSeg ? `${hh}${mm}${ss}` : `${hh}${mm}`;
+    r.getElementById('card').classList.toggle('seg', !!this._conSeg);
+    if (this._horaTxt !== clave) {
+      hora.innerHTML = this._conSeg
+        ? `${hh}<span class="dp">:</span>${mm}<span class="seg-num">:${ss}</span>`
+        : `${hh}<span class="dp">:</span>${mm}`;
+      this._horaTxt = clave;
+      const partes = [
+        d.toLocaleDateString(loc, { weekday: 'long' }),
+        d.toLocaleDateString(loc, { day: 'numeric' }),
+        d.toLocaleDateString(loc, { month: 'long' }),
+      ];
+      r.getElementById('fecha').textContent = partes.join(' · ');
+    }
+    const barra = r.getElementById('barra');
+    const seg = d.getSeconds();
+    if (seg === 0) {
+      barra.style.transition = 'none';
+      barra.style.width = '0%';
+      void barra.offsetWidth;
+    }
+    barra.style.transition = 'width 1s linear';
+    barra.style.width = `${((seg + 1) / 60) * 100}%`;
+  }
   _tick() {
+    if (this._config?.estilo === 'minimal') return this._tickMinimal();
     const r = this.shadowRoot;
     if (!r.getElementById('hora')) return;
     const loc = this._config?.idioma || 'es-ES';
