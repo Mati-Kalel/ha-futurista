@@ -3,7 +3,7 @@
  * Estilo "Opción E · Futurista": fondo oscuro, bordes con brillo, clima ilustrado.
  * Licencia MIT
  */
-const FX_VERSION = '1.3.0';
+const FX_VERSION = '1.4.0';
 
 (function cargarFuentes() {
   if (document.getElementById('fx-fuentes')) return;
@@ -477,6 +477,8 @@ class FuturistaClimaCard extends FxBase {
       ${estrellas}${astro}
     </svg>`;
 
+    const VELOCIDADES = { lenta: [180, 40], normal: [60, 25], rapida: [30, 14] };
+    const [durNubes, durNiebla] = VELOCIDADES[c.velocidad_nubes] || VELOCIDADES.normal;
     const montesSvg = `<svg viewBox="0 0 930 520" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
       <defs>
         <linearGradient id="mn${uid}" x1="0" y1="0" x2="0" y2="1">
@@ -486,7 +488,7 @@ class FuturistaClimaCard extends FxBase {
       </defs>
       ${precip}
       <path d="${this._cresta(3, 290, 70, 0.35)}" fill="${crestas[0]}"></path>
-      <g class="niebla"><rect x="-200" y="240" width="1330" height="190" fill="url(#mn${uid})"></rect></g>
+      <g class="niebla" style="animation-duration:${durNiebla}s"><rect x="-200" y="240" width="1330" height="190" fill="url(#mn${uid})"></rect></g>
       <path d="${this._cresta(10, 330, 50, 0.3)}" fill="${crestas[1]}"></path>
       <path d="${this._cresta(17, 365, 34, 0.25)}" fill="${crestas[2]}"></path>
       <path d="${this._cresta(24, 398, 20, 0.2)}" fill="${crestas[3]}"></path>
@@ -581,6 +583,11 @@ class FuturistaClimaCard extends FxBase {
     r.getElementById('montes').innerHTML = montesSvg;
     r.getElementById('sobre').innerHTML = sobre;
     r.querySelector('.card').setAttribute('aria-label', `Clima: ${CONDICIONES[cond] || cond}, ${Math.round(a.temperature)} grados`);
+    const mov = r.getElementById('mov');
+    if (mov.dataset.dur !== String(durNubes)) {
+      mov.style.animationDuration = `${durNubes}s`;
+      mov.dataset.dur = String(durNubes);
+    }
     if (this._claveNubes !== claveNubes) {
       const capa = r.getElementById('nubes');
       capa.style.opacity = opNube;
