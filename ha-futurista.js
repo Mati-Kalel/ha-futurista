@@ -3,7 +3,7 @@
  * Estilo "Opción E · Futurista": fondo oscuro, bordes con brillo, clima ilustrado.
  * Licencia MIT
  */
-const FX_VERSION = '1.5.0';
+const FX_VERSION = '1.5.1';
 
 (function cargarFuentes() {
   if (document.getElementById('fx-fuentes')) return;
@@ -792,7 +792,7 @@ class FuturistaMusicaCard extends FxBase {
     const s = this.st(this._config.entity);
     if (!s) return 'x';
     const a = s.attributes;
-    return JSON.stringify([s.state, a.media_title, a.media_artist, a.entity_picture, a.volume_level, a.media_duration, a.media_position_updated_at]);
+    return JSON.stringify([s.state, a.media_title, a.media_artist, a.entity_picture, a.volume_level, a.is_volume_muted, a.media_duration, a.media_position_updated_at]);
   }
   connectedCallback() { this._t = setInterval(() => this._progreso(), 1000); }
   disconnectedCallback() { clearInterval(this._t); }
@@ -828,6 +828,8 @@ class FuturistaMusicaCard extends FxBase {
       .b { width: 44px; height: 44px; border: 1px solid #5a3d12; border-radius: 12px; background: transparent; color: ${FX.ambar}; display: flex; align-items: center; justify-content: center; --mdc-icon-size: 22px; padding: 0; }
       .play { width: 52px; height: 52px; border: none; border-radius: 14px; background: ${FX.naranja}; color: #070b12; box-shadow: 0 0 20px rgba(255,159,10,.45); --mdc-icon-size: 26px; }
       .vol { flex-grow: 1; display: flex; align-items: center; gap: 8px; color: ${FX.ambar}; --mdc-icon-size: 18px; min-width: 80px; }
+      .mute { width: 36px; height: 36px; flex-shrink: 0; border: none; border-radius: 18px; background: transparent; color: inherit; display: flex; align-items: center; justify-content: center; padding: 0; }
+      .mute:hover { background: rgba(255,255,255,.06); }
       input[type=range] { flex-grow: 1; accent-color: ${FX.naranja}; height: 4px; }
     </style>
     <div class="card">
@@ -843,7 +845,7 @@ class FuturistaMusicaCard extends FxBase {
           <button class="b" id="prev" aria-label="Anterior"><ha-icon icon="mdi:skip-previous"></ha-icon></button>
           <button class="b play" id="play" aria-label="${sonando ? 'Pausar' : 'Reproducir'}"><ha-icon icon="${sonando ? 'mdi:pause' : 'mdi:play'}"></ha-icon></button>
           <button class="b" id="next" aria-label="Siguiente"><ha-icon icon="mdi:skip-next"></ha-icon></button>
-          <label class="vol"><ha-icon icon="mdi:volume-high"></ha-icon><input id="vol" type="range" min="0" max="100" value="${vol}" aria-label="Volumen"></label>
+          <div class="vol"><button class="mute" id="mute" aria-label="${this._silenciado(s) ? 'Quitar silencio' : 'Silenciar'}"><ha-icon icon="${this._silenciado(s) ? 'mdi:volume-off' : 'mdi:volume-high'}"></ha-icon></button><input id="vol" type="range" min="0" max="100" value="${vol}" aria-label="Volumen" style="opacity:${this._silenciado(s) ? .4 : 1}"></div>
         </div>
       </div>
     </div>`;
@@ -853,8 +855,38 @@ class FuturistaMusicaCard extends FxBase {
     r.getElementById('next').addEventListener('click', () => this.llamar('media_player.media_next_track', {}, id));
     r.getElementById('play').addEventListener('click', () => this.llamar('media_player.media_play_pause', {}, id));
     r.getElementById('vol').addEventListener('change', (e) => this.llamar('media_player.volume_set', { volume_level: e.target.value / 100 }, id));
+    r.getElementById('mute').addEventListener('click', () => this._alternarSilencio());
     r.querySelector('.arte').addEventListener('click', () => this.masInfo(c.entity));
     this._progreso();
+  }
+  _silenciado(s) {
+    const a = s.attributes;
+    return a.is_volume_muted === true || a.volume_level === 0;
+  }
+  _alternarSilencio() {
+    const c = this._config;
+    const s = this.st(c.entity);
+    if (!s) return;
+    const a = s.attributes;
+    const id = { entity_id: c.entity };
+    const clave = `fx-vol-${c.entity}`;
+    const soportaMute = ((a.supported_features || 0) & 8) !== 0 && a.is_volume_muted !== undefined;
+    if (soportaMute && !this._muteManual) {
+      this.llamar('media_player.volume_mute', { is_volume_muted: !a.is_volume_muted }, id)
+        .catch(() => { this._muteManual = true; this._alternarSilencio(); });
+      return;
+    }
+    const actual = a.volume_level ?? 0;
+    if (actual > 0) {
+      try { localStorage.setItem(clave, String(actual)); } catch (e) { /* sin almacenamiento */ }
+      this._volGuardado = actual;
+      this.llamar('media_player.volume_set', { volume_level: 0 }, id);
+    } else {
+      let previo = this._volGuardado;
+      if (previo == null) { try { previo = parseFloat(localStorage.getItem(clave)); } catch (e) { previo = NaN; } }
+      if (!(previo > 0)) previo = 0.3;
+      this.llamar('media_player.volume_set', { volume_level: previo }, id);
+    }
   }
   _posicion(s) {
     const a = s.attributes;
@@ -905,6 +937,9 @@ class FuturistaMusicaCard extends FxBase {
         .vol { display: flex; align-items: center; gap: 10px; color: #c3cbd8; max-width: 300px; --mdc-icon-size: 18px; }
         .vol input { flex-grow: 1; accent-color: #c3cbd8; }
         .vol span { font-size: 12px; color: #aab3c2; width: 36px; text-align: right; }
+        .mute { width: 38px; height: 38px; flex-shrink: 0; border: none; border-radius: 19px; background: transparent; color: inherit; display: flex; align-items: center; justify-content: center; padding: 0; margin-left: -10px; }
+        .mute:hover { background: rgba(255,255,255,.06); }
+        .vol input { transition: opacity .2s; }
       </style>
       <div class="card">
         <div class="anillo" id="anillo" role="button" tabindex="0" aria-label="Detalles del reproductor">
@@ -923,7 +958,7 @@ class FuturistaMusicaCard extends FxBase {
             <button class="b2 play" id="play"><ha-icon id="playIcono" icon="mdi:play"></ha-icon></button>
             <button class="b2" id="next" aria-label="Siguiente"><ha-icon icon="mdi:skip-next"></ha-icon></button>
           </div>
-          <label class="vol"><ha-icon icon="mdi:volume-high"></ha-icon><input id="vol" type="range" min="0" max="100" aria-label="Volumen"><span id="volTxt"></span></label>
+          <div class="vol"><button class="mute" id="mute"><ha-icon id="muteIcono" icon="mdi:volume-high"></ha-icon></button><input id="vol" type="range" min="0" max="100" aria-label="Volumen"><span id="volTxt"></span></div>
         </div>
       </div>`;
       const id = () => ({ entity_id: this._config.entity });
@@ -933,6 +968,7 @@ class FuturistaMusicaCard extends FxBase {
       const vol = r.getElementById('vol');
       vol.addEventListener('input', (e) => { r.getElementById('volTxt').textContent = `${e.target.value}%`; });
       vol.addEventListener('change', (e) => this.llamar('media_player.volume_set', { volume_level: e.target.value / 100 }, id()));
+      r.getElementById('mute').addEventListener('click', () => this._alternarSilencio());
       const an = r.getElementById('anillo');
       an.addEventListener('click', () => this.masInfo(this._config.entity));
       an.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.masInfo(this._config.entity); });
@@ -955,7 +991,11 @@ class FuturistaMusicaCard extends FxBase {
     const vol = Math.round((a.volume_level ?? 0) * 100);
     const inp = r.getElementById('vol');
     if (this.shadowRoot.activeElement !== inp) inp.value = vol;
-    r.getElementById('volTxt').textContent = `${vol}%`;
+    const mudo = this._silenciado(s);
+    r.getElementById('volTxt').textContent = mudo ? 'Mudo' : `${vol}%`;
+    r.getElementById('muteIcono').setAttribute('icon', mudo ? 'mdi:volume-off' : 'mdi:volume-high');
+    r.getElementById('mute').setAttribute('aria-label', mudo ? 'Quitar silencio' : 'Silenciar');
+    inp.style.opacity = mudo ? '0.4' : '1';
     this._tickCircular();
   }
   _tickCircular() {
